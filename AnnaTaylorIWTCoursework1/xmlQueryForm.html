@@ -1,0 +1,489 @@
+
+
+<html>
+	<head>
+		<link rel="stylesheet" type="text/css" href="CSSstylesheet.css"></link>
+		
+		<title>XML Query Form</title>
+		
+		<script type="text/javascript">
+  			
+  			/* Loads an XML document */
+  			function loadXML(uri) { 
+  				var xhr = new XMLHttpRequest();
+  				xhr.open("GET", uri, false);
+  				xhr.send(null);
+ 				return xhr.responseXML;
+			}
+			
+									
+			/* Function that retrieves third-level elements */
+			function retrieveChildren(queryFile, thirdLevelElements) {
+				try{
+					if (!queryFile.length) {  //Ensures user specifies a file
+						window.alert("Please specify an XML file!");
+					}
+					else if (!queryFile.match(".xml")) { //Rules out non XML files
+						window.alert("Please specify XML files only!");
+					}
+					else{
+						var xmlDoc = loadXML(queryFile);
+						var root = xmlDoc.documentElement; //Picks out the root element
+						var nodes = root.firstChild.nextSibling.childNodes;//nodes holds a list of third-level elements
+						var result = "";
+				
+						for (i=0; i < nodes.length; i++){
+							if (nodes[i].nodeType==1) { //nodeType 1 refers to elements (prevents text nodes from appearing)
+								result = result + "<ul><li>" + nodes[i].nodeName + "</li></ul>";
+							}
+						}				
+						resultArea.innerHTML = result;	
+					}
+				}
+				catch (e) { 
+					window.alert("An error has occurred: " + e.message + "\nPlease enter a valid XML file name, ensuring " +
+						"that you specify its path if it is not in the same directory as this form.");
+				} 			
+			}
+			
+			
+			function createThirdElementsArray(xmlDoc) {
+				var thirdLevelElementsArray = new Array();
+				var root = xmlDoc.documentElement; //Picks out the root element
+				var nodes = root.firstChild.nextSibling.childNodes;					
+							
+				for (i=0; i < nodes.length; i++){
+						if (nodes[i].nodeType==1) { //nodeType 1 refers to elements (prevents text nodes from appearing)
+							thirdLevelElementsArray.push(nodes[i].nodeName);
+						}
+				}
+				return thirdLevelElementsArray;
+			}		
+			
+			/* For Internet Explorer; array.indexOf() not supported */
+			function evaluateContents(array, item) {
+				for (i = 0; i < array.length; i++) {
+					if (array[i] === item) {
+						return true;
+					}
+				}
+				return false;
+			}
+				
+			
+			
+			/* Evaluates user's specifications about predicates, sorting and element sequence */
+			function filter(queryFile, predicateInput, sortInput, sequenceInput) {			
+				try {
+					if (!queryFile.length) {  //Ensures a file has been specified
+						window.alert("Please specify an XML file!");
+					}
+					
+					var xmlDoc = loadXML(queryFile);
+					var stylesheet = loadXML("fixedStructureStylesheet.xsl");
+					
+					/* Mozilla, Safari etc */
+					if (typeof (XSLTProcessor) != "undefined") {
+						var processor = new XSLTProcessor();
+						processor.importStylesheet(stylesheet);
+						var result = processor.transformToFragment(xmlDoc, document);//document is the resulting DOM fragment
+					
+					
+						document.getElementById("resultArea2").replaceChild(result, document.getElementById("resultArea2").firstChild);
+						/* replaceChild() is useful here so that if the user clicks 'evaluate' more than once, the previous 
+						results are overwritten by the new results, avoiding multiple tables being appended to one another. */								
+					}
+				
+					/* Internet Explorer */
+					else {
+						resultArea2.innerHTML = xmlDoc.transformNode(stylesheet);
+					}
+					
+					/* Code to modify the stylesheet according to user choices */
+				
+					/* Namespaces for use in creation of additional xsl elements */
+					var xmlns = "http://www.w3.org/1999/XSL/Transform";
+					var htmlns = "http://www.w3.org/1999/xhtml";
+					
+					/* Variables to adapt user input for use in stylesheet modification below */ 
+					var predicateSyntax = "/*/*["; //Predicates are appended to this for use in the xsl document
+					var predicateText= predicateSyntax + predicateInput + "]";                   
+									   
+					var sequenceHeaderSyntax = "/*/*[1]/"; //XPath syntax required for the table header row				
+					var sequenceTextArray = sequenceInput.split(","); //Splits user input on commas
+					
+					/* Retrieves an array of the the xml document's third level elements for comparison with user input in 
+					order to facilitate error-handling */
+					var thirdLevelElementsArray = createThirdElementsArray(xmlDoc);		
+					
+								
+					/* Mozilla, Safari etc */
+					if (typeof (stylesheet.evaluate) != "undefined") {
+						var nsResolver = stylesheet.createNSResolver(
+							stylesheet.ownerDocument == null ?
+							stylesheet.documentElement :
+							stylesheet.ownerDocument.documentElement);
+						
+										
+						/* Only modify stylesheet if sequenceInput is defined */
+						if (sequenceInput.length) {						
+						
+						    /* Modifications to stylesheet are only made if the user's specified elements are valid */
+						    var proceed = true;
+						    
+							for (i = 0; i < sequenceTextArray.length; i++) {							
+								var sequenceItem = sequenceTextArray[i];
+								if (thirdLevelElementsArray.indexOf(sequenceItem) == -1) {
+									proceed = false;
+									break; //as soon as an invalid element is found, break
+								}
+							}
+							
+							if (proceed) { 
+								
+								/* For the first sequence element, the select attribute of the existing for-each loop
+								is replaced. For any further sequence elements the user enters, additional for-each loops
+								(and their contents) are created and added to the stylesheet. This ensures the sequence of 
+								columns in the table matches the user's sequence. */
+							   
+								/* This for-loop takes care of the result table's header row. */
+								for (i = 0; i < sequenceTextArray.length; i++) {
+							
+									if (i == 0) {
+										var singleHeader = sequenceHeaderSyntax + sequenceTextArray[0];
+									
+										var headerValue = stylesheet.evaluate("//xsl:for-each[@id='headers']",
+											stylesheet, nsResolver, XPathResult.ANY_UNORDERED_NODE_TYPE, null);
+				
+										headerValue.singleNodeValue.setAttribute("select", singleHeader);
+									}
+								
+									else {
+								
+										/*Picks out <tr> node in stylesheet, which is the parent node of the table-header
+										  for-each loops. */
+										var trNode = stylesheet.evaluate("//tr[@id = 'headerTr']", stylesheet, nsResolver, 
+												XPathResult.ANY_UNORDERED_NODE_TYPE, null);
+
+										/* Creates a new for-each element */		
+										var xslForEach = stylesheet.createElementNS(xmlns, "xsl:for-each");
+									
+										/* Appends the new for-each loop to the <tr> element. */
+										trNode.singleNodeValue.appendChild(xslForEach);
+															
+										xslForEach.setAttribute("select", sequenceHeaderSyntax + sequenceTextArray[i]);
+									
+										/* Creates html <th> tag. */
+										var thNode = stylesheet.createElementNS(htmlns, "th");
+										xslForEach.appendChild(thNode);
+									
+										/* Creates xsl:value-of element */
+										var valueOfNode = stylesheet.createElementNS(xmlns, "xsl:value-of");
+										thNode.appendChild(valueOfNode);
+										valueOfNode.setAttribute("select", "translate(name(), $lowercase, $uppercase)");
+									}
+								}
+												
+							
+								/* This for-loop takes care of the table's contents. */
+								for (i = 0; i < sequenceTextArray.length; i++) {
+								
+									/* For the first sequence element, the select attribute of the existing for-each loop
+									   is replaced. For any further sequence elements the user enters, additional for-each loops
+									   (and their contents) are created and added to the stylesheet. */
+									if (i == 0) {
+										var singleColumn = sequenceTextArray[0];
+									
+										var tableContents = stylesheet.evaluate("//xsl:for-each[@id='tableContents']",
+											stylesheet, nsResolver, XPathResult.ANY_UNORDERED_NODE_TYPE, null);
+				
+										tableContents.singleNodeValue.setAttribute("select", singleColumn);
+									}			
+								
+									else { //Create additional for-each loops for each additional sequence element
+									
+										var trNode = stylesheet.evaluate("//tr[@id = 'awardTr']", stylesheet, nsResolver, 
+												XPathResult.ANY_UNORDERED_NODE_TYPE, null);
+
+									
+										/* Creates a new for-each element and sets its select attribute. */		
+										var xslForEach = stylesheet.createElementNS(xmlns, "xsl:for-each");
+										xslForEach.setAttribute("select", sequenceTextArray[i]);
+																		
+										/* Appends the new for-each loop to the <tr> element. */
+										trNode.singleNodeValue.appendChild(xslForEach);								
+									
+										/* Creates html <td> tag. */
+										var tdNode = stylesheet.createElementNS(htmlns, "td");
+										xslForEach.appendChild(tdNode);
+										tdNode.setAttribute("id", "embeddedTD"); //id required for css stylesheet
+									
+										/* Creates xsl:value-of element */
+										var valueOfNode = stylesheet.createElementNS(xmlns, "xsl:value-of");
+										tdNode.appendChild(valueOfNode);
+										valueOfNode.setAttribute("select", ".");
+													
+									}
+								}
+							}
+							else {
+								window.alert("Invalid third-level element(s)! Please check the third-level elements of the file " +
+									"by retrieving its third-level elements above.");
+							}
+						}
+									
+							
+					
+						/* Only includes sort node in stylesheet if sortInput is defined */
+						if (sortInput.length) { 
+						
+							/* Modifications to stylesheet are only made if the user's specified elements are valid */
+							if (thirdLevelElementsArray.indexOf(sortInput) != -1) { 					
+							
+								/* Append sort element to for-each loop */
+								var trNode = stylesheet.evaluate("//tr[@id='awardTr']",
+									stylesheet, nsResolver, XPathResult.ANY_UNORDERED_NODE_TYPE, null);
+								
+								var parentNode = stylesheet.evaluate("//xsl:for-each[@id='tableRestrictions']",
+									stylesheet, nsResolver, XPathResult.ANY_UNORDERED_NODE_TYPE, null);
+								
+								var xslSort = stylesheet.createElementNS(xmlns, "xsl:sort");
+								xslSort.setAttribute("select", sortInput);
+								/* Ensures sort element is inserted as first child of the for-each loop. */
+								parentNode.singleNodeValue.insertBefore(xslSort, trNode.singleNodeValue);
+							}
+							else {
+								window.alert("Invalid sort element! Please check the third-level elements of the file " +
+										"by retrieving its third-level elements above.");
+							}
+							
+						}
+					
+						/* Only add predicates to stylesheet if predicateInput is defined */
+						if (predicateInput.length) {
+							var value4 = stylesheet.evaluate("//xsl:for-each[@id='tableRestrictions']", 
+								stylesheet, nsResolver, XPathResult.ANY_UNORDERED_NODE_TYPE, null);  					
+					
+							value4.singleNodeValue.setAttribute("select", predicateText);
+						}
+				
+				
+						var proc = new XSLTProcessor();
+						proc.importStylesheet(stylesheet);
+						var resultFragment = proc.transformToFragment(xmlDoc, document);
+						document.getElementById("resultArea2").replaceChild(resultFragment, 
+							document.getElementById("resultArea2").firstChild);
+					
+							
+					
+					}
+					
+					/* Internet Explorer */
+					else {	
+					
+						/* Only modify stylesheet if sequenceInput is defined */
+						if (sequenceInput.length) {
+						
+							/* Modifications to stylesheet are only made if the user's specified elements are valid */
+						    var proceed = true;
+						    
+							for (i = 0; i < sequenceTextArray.length; i++) {							
+								var sequenceItem = sequenceTextArray[i];
+								if (!evaluateContents(thirdLevelElementsArray, sequenceItem)) {
+									proceed = false;
+									break; //as soon as an invalid element is found, break
+								}
+							}
+							
+							if (proceed) { 
+								
+								for (i = 0; i < sequenceTextArray.length; i++) {
+								
+									if (i == 0) {
+										var singleHeader = sequenceHeaderSyntax + sequenceTextArray[0];
+										var headerValue = stylesheet.selectSingleNode("//xsl:for-each[@id='headers']");				
+										headerValue.setAttribute("select", singleHeader);
+									}
+								
+									else {						
+										/*Picks out <tr> node in stylesheet, which is the parent node of the table-header
+										  for-each loops. */
+										var trNode = stylesheet.selectSingleNode("//tr[@id = 'headerTr']");
+
+										/* Creates a new for-each element and sets its attributes. */		
+										var xslForEach = stylesheet.createNode(1, "xsl:for-each", xmlns);
+				
+										/* Appends the new for-each loop to the <tr> element and sets select attribute. */
+										trNode.appendChild(xslForEach);													
+										xslForEach.setAttribute("select", sequenceHeaderSyntax + sequenceTextArray[i]);
+							
+										/* Creates html <th> tag. */
+										var thNode = stylesheet.createNode(1, "th", htmlns);
+										xslForEach.appendChild(thNode);
+							
+										/* Creates xsl:value-of element and sets select attribute */
+										var valueOfNode = stylesheet.createNode(1, "xsl:value-of", xmlns);
+										thNode.appendChild(valueOfNode);
+										valueOfNode.setAttribute("select", "translate(name(), $lowercase, $uppercase)");
+							
+									}
+								
+								}
+												
+							
+								/* This for-loop takes care of the table's contents. */
+								for (i = 0; i < sequenceTextArray.length; i++) {
+								
+									/* For the first sequence element, the select attribute of the existing for-each loop
+									   is replaced. For any further sequence elements the user enters, additional for-each loops
+									   (and their contents) are created and added to the stylesheet. */
+									if (i == 0) {
+										var singleColumn = sequenceTextArray[0];									
+										var tableContents = stylesheet.selectSingleNode("//xsl:for-each[@id='tableContents']");
+				
+										tableContents.setAttribute("select", singleColumn);
+									}
+															
+									else { //Creates additional for-each loops for each sequence element
+									
+										var trNode = stylesheet.selectSingleNode("//tr[@id = 'awardTr']");
+
+										/* Creates a new for-each element and sets its attributes. */		
+										var xslForEach = stylesheet.createNode(1, "xsl:for-each", xmlns);
+										xslForEach.setAttribute("select", sequenceTextArray[i]);
+																		
+										/* Appends the new for-each loop to the <tr> element. */
+										trNode.appendChild(xslForEach);								
+									
+										/* Creates html <td> tag. */
+										var tdNode = stylesheet.createNode(1, "td", htmlns);
+										xslForEach.appendChild(tdNode);
+										tdNode.setAttribute("id", "embeddedTD"); //id required for css stylsheet
+									
+										/* Creates xsl:value-of element */
+										var valueOfNode = stylesheet.createNode(1, "xsl:value-of", xmlns);
+										tdNode.appendChild(valueOfNode);
+										valueOfNode.setAttribute("select", ".");
+													
+									}
+								}
+							}
+							else {
+								window.alert("Invalid third-level element(s)! Please check the third-level elements of the file " +
+									"by retrieving its third-level elements above.");
+							}
+						}					
+							
+						/* Only create sort element in stylesheet if sortInput is defined */
+						if (sortInput.length) { 
+						
+							if (evaluateContents(thirdLevelElementsArray, sortInput)) { 					
+							
+								/* Append sort element to for-each loop */
+								var trNode = stylesheet.selectSingleNode("//tr[@id='awardTr']");
+								
+								var parentNode = stylesheet.selectSingleNode("//xsl:for-each[@id='tableRestrictions']");
+								
+								var xslSort = stylesheet.createNode(1, "xsl:sort", xmlns);
+								xslSort.setAttribute("select", sortInput);
+							
+								/* Ensures sort element is inserted as first child of the for-each loop. */
+								parentNode.insertBefore(xslSort, trNode);
+							}
+							else {
+								window.alert("Invalid sort element! Please check the third-level elements of the file " +
+										"by retrieving its third-level elements above.");
+							}								
+						}
+					
+						/* Only add predicates to stylesheet if predicateInput is defined */
+						if (predicateInput.length) {
+							var value4 = stylesheet.selectSingleNode("//xsl:for-each[@id='tableRestrictions']");  					
+					
+							value4.setAttribute("select", predicateText);
+						}
+						
+						resultArea2.innerHTML = xmlDoc.transformNode(stylesheet);
+					}
+				}
+				catch (e) {
+					alert("An error has occurred: " + e.message + "\nFirstly, ensure that you have entered a valid XML " + 
+						"file.  Please also ensure that you enter a valid predicate, " +
+						"a valid third-level element in the sort field, and valid third-level elements in the sequence " +
+						"field. You can retrieve a list of the document's third-level elements above by clicking on 'Go'.");
+				}							
+
+			}
+		
+  			
+		</script>
+		
+	</head>
+	
+	<body>
+		<h2>XML Query Form</h2>
+		<p>You can use this form to query an XML document of the following structure:
+			<br>&lt;!ELEMENT a (b*) &gt;
+			<br>&lt;!ELEMENT b (c,d,...) &gt;</br>
+		</p>
+		
+		<form>
+		<table>
+			<tr>
+				<td>File to query: </td>
+				<td><input type="text" name="queryFile" size="20" /></td>
+			</tr>
+			<tr>
+				<td>Retrieve third-level elements</td>
+				<td><input type="button" value="Go" onclick="retrieveChildren(this.form.queryFile.value)" /></td>
+			</tr>
+		</table>
+		
+		<p></p>
+		
+		<div id="resultArea">
+		<p id="p1"></p>		
+		</div>
+		
+		<p></p>
+		
+		<table>
+			<tr>
+				<td>Specify an XPath Predicate (without square brackets): </td>
+				<td><input type="text" name="predicateInput" size="20" /></td>
+			</tr>
+			<tr>
+				<td>Sort by element name: </td>
+				<td><input type="text" name="sortInput" size="20" /></td>
+			</tr>
+			<tr>
+				<td>Sequence of element names you wish to display (separated by a comma): </td>
+				<td><input type="text" name="sequenceInput" size="20" /></td>
+			</tr>
+			<tr>
+				<td></td>
+				<td><input type="button" value="Evaluate" onclick="filter(this.form.queryFile.value,
+					this.form.predicateInput.value, this.form.sortInput.value, this.form.sequenceInput.value)" /></td>
+			</tr>
+		</table>
+		
+		<p>Note: If the result table doesn't respond to your entries in the above fields, please ensure 
+		   that you have entered valid third-level elements (you can retrieve these by pressing 'Go' after
+		   declaring the XML file). Bear in mind that elements are case-sensitive and should be typed as
+		   they appear after retrieving them above.</p>	
+		
+		
+		</form>
+		
+		<div id="resultArea2"><p></p></div>
+		
+		
+	</body>
+	
+</html>
+
+<!-- Anna Taylor, Internet & Web Technologies Coursework 1 -->
+<!-- I confirm that this coursework submission is entirely my own work, except where explicitly 
+stated otherwise. -->
+				
+	
